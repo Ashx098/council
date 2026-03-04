@@ -14,6 +14,7 @@ from council_hub.db.repo import Database, SessionRepo, EventRepo, ArtifactRepo
 from council_hub.core.ingest import IngestService, IngestError
 from council_hub.core.digest import DigestService
 from council_hub.core.stream import SSEManager, SSEEvent, make_body_preview
+from council_hub.core.pairing import PairingService, PairingCode
 from council_hub.storage.artifacts import ArtifactStore
 
 
@@ -26,6 +27,7 @@ store: Optional[ArtifactStore] = None
 ingest: Optional[IngestService] = None
 digest: Optional[DigestService] = None
 sse: Optional[SSEManager] = None
+pairing: Optional[PairingService] = None
 
 
 def get_sse() -> SSEManager:
@@ -36,12 +38,20 @@ def get_sse() -> SSEManager:
     return sse
 
 
+def get_pairing() -> PairingService:
+    """Get pairing service, initializing lazily if needed."""
+    global pairing, db
+    if pairing is None:
+        if db is None:
+            db = Database()
+        pairing = PairingService(db)
+    return pairing
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global db, sessions, events, artifacts, store, ingest, digest, sse
+    global db, sessions, events, artifacts, store, ingest, digest, sse, pairing
     
     # Initialize on startup
     db = Database()
@@ -52,6 +62,7 @@ async def lifespan(app: FastAPI):
     ingest = IngestService(db, store)
     digest = DigestService(db, store)
     sse = SSEManager()
+    pairing = PairingService(db)
     
     yield
     
@@ -381,12 +392,108 @@ async def get_artifact(session_id: str, artifact_id: str):
         }
     )
 
+# ============ Pairing Endpoints ============
+
+class CreatePairingRequest(BaseModel):
+    session_id: str = Field(..., description="Session ID to pair")
+    ttl_minutes: int = Field(10, description="Time-to-live in minutes")
+
+
+class ClaimPairingRequest(BaseModel):
+    code: str = Field(..., description="Pairing code to claim")
+    claimed_by: Optional[str] = Field(None, description="Identifier for claimer")
+    repo_root: Optional[str] = Field(None, description="Repository path")
+
+
+class PairingResponse(BaseModel):
+    code: str
+    session_id: str
+    repo_root: Optional[str]
+    created_at: str
+    expires_at: str
+    claimed_at: Optional[str]
+    claimed_by: Optional[str]
+
+
+def pairing_to_response(p: PairingCode) -> PairingResponse:
+    return PairingResponse(
+        code=p.code,
+        session_id=p.session_id,
+        repo_root=p.repo_root,
+        created_at=p.created_at,
+        expires_at=p.expires_at,
+        claimed_at=p.claimed_at,
+        claimed_by=p.claimed_by
+    )
+
+
+@app.post("/v1/pair/create", response_model=PairingResponse)
+async def create_pairing(request: CreatePairingRequest):
+    """Create a new pairing code for a session.
+    
+    The extension calls this to get a code that the CLI can claim.
+    """
+    if sessions is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    
+    # Ensure session exists
+    session = sessions.get_or_create(request.session_id)
+    
+    try:
+        code = get_pairing().create(request.session_id, request.ttl_minutes)
+        return pairing_to_response(code)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/v1/pair/claim", response_model=PairingResponse)
+async def claim_pairing(request: ClaimPairingRequest):
+    """Claim a pairing code.
+    
+    The CLI calls this to bind to a session.
+    """
+    try:
+        result = get_pairing().claim(
+            request.code,
+            claimed_by=request.claimed_by,
+            repo_root=request.repo_root
+        )
+        return pairing_to_response(result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/v1/pair/{code}", response_model=PairingResponse)
+async def get_pairing(code: str):
+    """Get pairing code status."""
+    result = get_pairing().get(code)
+    if result is None:
+        raise HTTPException(status_code=404, detail={
+            "error": "pairing_not_found",
+            "message": "Pairing code not found or expired"
+        })
+    
+    return pairing_to_response(result)
+
+
+@app.get("/v1/pair/session/{session_id}", response_model=PairingResponse)
+async def get_session_pairing(session_id: str):
+    """Get the active pairing code for a session."""
+    result = get_pairing().get_by_session(session_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail={
+            "error": "no_active_pairing",
+            "message": "No active pairing code for this session"
+        })
+    
+    return pairing_to_response(result)
+
 
 # Health check
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "version": "1.0.0-phase4"}
+    return {"status": "healthy", "version": "1.0.0-phase5"}
 
 
 # Main entry point

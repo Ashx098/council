@@ -17,13 +17,16 @@ from council_cli.wrapper.gitwatch import get_git_state, summarize_diff, format_p
 from council_cli.wrapper.capture import OutputCapture, OutputBatch, split_text_for_events
 from council_cli.wrapper.report import RunReportData, format_run_report, create_run_report_meta
 from council_cli.utils.text import summarize_diff as text_summarize_diff
+from council_cli.commands.pair import get_session_from_pair, get_repo_from_pair
 
 
 console = Console()
 
 
 def attach(
-    session_id: str = typer.Argument(..., help="Session ID"),
+    session_id: Optional[str] = typer.Option(None, "--session", "-s", help="Session ID"),
+    pair: Optional[str] = typer.Option(None, "--pair", "-p", help="Pairing code (instead of session ID)"),
+
     repo: Path = typer.Option(..., "--repo", "-r", help="Repository path", exists=True),
     command: List[str] = typer.Argument(..., help="Agent command to run (after --)"),
     hub_url: str = typer.Option("http://127.0.0.1:7337", envvar="COUNCIL_HUB_URL"),
@@ -32,15 +35,26 @@ def attach(
     batch_lines: int = typer.Option(50, "--batch-lines", help="Max lines per output batch"),
     allow_any_command: bool = typer.Option(False, "--allow-any-command", help="Bypass allowlist"),
 ):
-    """Attach to an agent process and monitor its activity.
     
-    1. Pulls context from hub and prints "Supervisor Brief"
-    2. Starts agent process
-    3. Batches stdout/stderr → message events (throttled)
-    4. Watches git diffs periodically → patch artifacts and events
-    5. Emits run_report at end
+    Examples:
+        council attach --session cgpt:abc123 --repo . -- opencode
+        council attach --pair AB7K --repo . -- opencode
     """
     client = HubClient(base_url=hub_url)
+    
+    # Resolve session_id from pair code if provided
+    if pair:
+        resolved = get_session_from_pair(pair)
+        if not resolved:
+            console.print(f"[red]Unknown pairing code: {pair}[/red]")
+            console.print("[dim]Run 'council pair {pair}' first to claim the code[/dim]")
+            raise typer.Exit(1)
+        session_id = resolved
+        console.print(f"[dim]Resolved pair {pair} -> {session_id}[/dim]")
+    
+    if not session_id:
+        console.print("[red]Error: Either --session or --pair is required[/red]")
+        raise typer.Exit(1)
     
     # Batching state
     pending_batches: List[OutputBatch] = []

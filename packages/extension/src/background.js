@@ -24,7 +24,7 @@ const KEEPALIVE_INTERVAL_MINUTES = 1;
 const STALE_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes
 
 // Milestone event types that trigger notifications
-const MILESTONE_TYPES = ['question', 'run_report'];
+const MILESTONE_TYPES = ['question', 'run_report', 'decision'];
 
 /**
  * Check if an event is a milestone that should notify.

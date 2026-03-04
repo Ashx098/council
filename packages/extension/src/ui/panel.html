@@ -317,9 +317,18 @@
     </div>
   </div>
   
-  <div class="actions">
-    <button class="btn btn-secondary" id="clear-cursor-btn">Clear Cursor</button>
-    <button class="btn btn-secondary" id="open-hub-btn">Open Hub</button>
+  </div>
+  
+  <div class="divider"></div>
+  
+  <div class="section">
+    <label>Pairing Code</label>
+    <p class="help-text">Generate a code to pair CLI with this session</p>
+    <div class="pairing-display">
+      <code id="pair-code">-</code>
+      <span id="pair-expires" class="pair-expires"></span>
+    </div>
+    <button class="btn btn-primary" id="create-pair-btn">Create Pair Code</button>
   </div>
   
   <script src="panel.js"></script>

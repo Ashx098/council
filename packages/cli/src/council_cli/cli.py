@@ -11,6 +11,7 @@ from council_cli.commands.tail import tail
 from council_cli.commands.snapshot import snapshot
 from council_cli.commands.run import run
 from council_cli.commands.attach import attach
+from council_cli.commands.pair import pair
 
 
 app = typer.Typer(
@@ -37,6 +38,7 @@ app.command("tail")(tail)
 app.command("snapshot")(snapshot)
 app.command("run")(run)
 app.command("attach")(attach)
+app.command("pair")(pair)
 
 
 if __name__ == "__main__":

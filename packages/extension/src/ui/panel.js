@@ -18,6 +18,9 @@ const notifyPatchToggle = document.getElementById('notify-patch-toggle');
 const sseIndicator = document.getElementById('sse-indicator');
 const sseStatusText = document.getElementById('sse-status-text');
 const reconnectBtn = document.getElementById('reconnect-btn');
+const pairCodeDisplay = document.getElementById('pair-code');
+const pairExpires = document.getElementById('pair-expires');
+const createPairBtn = document.getElementById('create-pair-btn');
 
 /**
  * Load and display config.
@@ -251,6 +254,89 @@ async function reconnectSSE() {
   }, 1000);
 }
 
+/**
+ * Create a pairing code for the current session.
+ */
+async function createPairCode() {
+  const threadId = await getThreadId();
+  
+  if (threadId === '-') {
+    pairCodeDisplay.textContent = 'No session';
+    return;
+  }
+  
+  const sessionId = `cgpt:${threadId}`;
+  const config = await getConfig();
+  
+  createPairBtn.textContent = 'Creating...';
+  createPairBtn.disabled = true;
+  
+  try {
+    const response = await fetch(`${config.hubUrl}/v1/pair/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        ttl_minutes: 10
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Display the code
+    pairCodeDisplay.textContent = data.code;
+    pairCodeDisplay.style.fontSize = '24px';
+    pairCodeDisplay.style.fontWeight = 'bold';
+    pairCodeDisplay.style.color = '#10b981';
+    
+    // Start countdown
+    startPairCountdown(data.expires_at);
+    
+    createPairBtn.textContent = 'Refresh Code';
+    createPairBtn.disabled = false;
+  } catch (error) {
+    console.error('Failed to create pair code:', error);
+    pairCodeDisplay.textContent = 'Error';
+    createPairBtn.textContent = 'Create Pair Code';
+    createPairBtn.disabled = false;
+  }
+}
+
+/**
+ * Start countdown timer for pairing code expiration.
+ */
+function startPairCountdown(expiresAt) {
+  // Clear any existing interval
+  if (window.pairCountdownInterval) {
+    clearInterval(window.pairCountdownInterval);
+  }
+  
+  const updateCountdown = () => {
+    const now = new Date();
+    const expires = new Date(expiresAt);
+    const remaining = Math.max(0, expires - now);
+    
+    if (remaining === 0) {
+      pairExpires.textContent = '(expired)';
+      pairCodeDisplay.style.color = '#6b7280';
+      clearInterval(window.pairCountdownInterval);
+      return;
+    }
+    
+    const minutes = Math.floor(remaining / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+    pairExpires.textContent = `(${minutes}:${seconds.toString().padStart(2, '0')})`;
+  };
+  
+  updateCountdown();
+  window.pairCountdownInterval = setInterval(updateCountdown, 1000);
+}
+
+
 // Event listeners
 saveBtn.addEventListener('click', saveConfig);
 testBtn.addEventListener('click', testConnection);
@@ -263,7 +349,9 @@ if (reconnectBtn) {
 // Toggle listeners
 autoPullToggle.addEventListener('change', saveConfig);
 notifyPatchToggle.addEventListener('change', saveConfig);
-
+if (createPairBtn) {
+  createPairBtn.addEventListener('click', createPairCode);
+}
 // Initialize
 loadConfig();
 checkHealth();

@@ -50,12 +50,19 @@ CREATE TABLE IF NOT EXISTS artifacts (
 CREATE INDEX IF NOT EXISTS idx_artifacts_session_id ON artifacts(session_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_kind ON artifacts(kind);
 
--- Trigger to update session timestamp and event count on new event
-CREATE TRIGGER IF NOT EXISTS update_session_on_event
-AFTER INSERT ON events
-BEGIN
-    UPDATE sessions 
-    SET updated_at = CURRENT_TIMESTAMP,
-        event_count = event_count + 1
-    WHERE session_id = NEW.session_id;
-END;
+
+
+-- Pairing codes table: for session-cli binding
+CREATE TABLE IF NOT EXISTS pairing_codes (
+    code TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    repo_root TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    claimed_at TIMESTAMP,
+    claimed_by TEXT,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_pairing_codes_session ON pairing_codes(session_id);
+CREATE INDEX IF NOT EXISTS idx_pairing_codes_expires ON pairing_codes(expires_at);

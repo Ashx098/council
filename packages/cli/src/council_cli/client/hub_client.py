@@ -190,7 +190,46 @@ class HubClient:
         """Get artifact content."""
         response = self._request("GET", 
                                 f"/v1/sessions/{session_id}/artifacts/{artifact_id}")
-        return response.content
+    def claim_pairing(self, code: str, claimed_by: str = None, 
+                       repo_root: str = None) -> Dict[str, Any]:
+        """Claim a pairing code.
+        
+        Args:
+            code: Pairing code to claim
+            claimed_by: Identifier for claimer (e.g., hostname)
+            repo_root: Repository path to bind
+            
+        Returns:
+            Pairing response with session_id
+        """
+        payload = {"code": code}
+        if claimed_by:
+            payload["claimed_by"] = claimed_by
+        if repo_root:
+            payload["repo_root"] = repo_root
+        
+        response = self._request("POST", "/v1/pair/claim", json=payload)
+        return response.json()
+    
+    def get_pairing(self, code: str) -> Optional[Dict[str, Any]]:
+        """Get pairing code status."""
+        try:
+            response = self._request("GET", f"/v1/pair/{code}")
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
+    
+    def create_pairing(self, session_id: str, 
+                       ttl_minutes: int = 10) -> Dict[str, Any]:
+        """Create a pairing code for a session."""
+        payload = {
+            "session_id": session_id,
+            "ttl_minutes": ttl_minutes
+        }
+        response = self._request("POST", "/v1/pair/create", json=payload)
+        return response.json()
     
     def close(self):
         """Close the client."""
