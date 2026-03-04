@@ -266,7 +266,7 @@ async function createPairCode() {
   }
   
   const sessionId = `cgpt:${threadId}`;
-  const config = await getConfig();
+  const config = await chrome.runtime.sendMessage({ action: 'getConfig' });
   
   createPairBtn.textContent = 'Creating...';
   createPairBtn.disabled = true;

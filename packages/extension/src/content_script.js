@@ -102,8 +102,13 @@
    */
   async function updateStatus() {
     if (!statusIndicator) return;
-
-    const response = await chrome.runtime.sendMessage({ action: 'checkHealth' });
+    let response;
+    try {
+      response = await chrome.runtime.sendMessage({ action: 'checkHealth' });
+    } catch (e) {
+      console.warn('[Council] Background not available:', e.message);
+      return;
+    }
     
     if (response && response.healthy) {
       statusIndicator.classList.remove('council-status-error');
@@ -136,12 +141,16 @@
   async function refreshBadge() {
     const sessionId = window.CouncilThread.getSessionId();
     if (!sessionId) return;
-    
-    const response = await chrome.runtime.sendMessage({
+    let response;
+    try {
+      response = await chrome.runtime.sendMessage({
       action: 'getUpdateCount',
       sessionId
     });
-    
+    } catch (e) {
+      console.warn('[Council] Background not available:', e.message);
+      return;
+    }
     if (response && response.count !== undefined) {
       updateBadge(response.count);
     }
