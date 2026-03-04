@@ -1,0 +1,120 @@
+/* Council Extension Content Styles */
+
+/* Keyframes for animations */
+@keyframes council-fade-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes council-fade-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-10px); }
+}
+
+/* Toolbar */
+#council-toolbar {
+  margin: 8px 0;
+  z-index: 10000;
+}
+
+.council-toolbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Status indicator */
+.council-status {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  margin-right: 4px;
+}
+
+.council-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #6b7280;
+  transition: background 0.3s ease;
+}
+
+.council-status-dot.council-status-ok {
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.council-status-dot.council-status-error {
+  background: #ef4444;
+  box-shadow: 0 0 6px #ef4444;
+}
+
+/* Buttons */
+.council-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.council-btn-sync {
+  background: #3b82f6;
+  color: white;
+}
+
+.council-btn-sync:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
+}
+
+.council-btn-sync:active {
+  transform: translateY(0);
+}
+
+.council-btn-pull {
+  background: #8b5cf6;
+  color: white;
+}
+
+.council-btn-pull:hover {
+  background: #7c3aed;
+  transform: translateY(-1px);
+}
+
+.council-btn-pull:active {
+  transform: translateY(0);
+}
+
+.council-icon {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* Toast */
+#council-toast {
+  animation: council-fade-in 0.3s ease;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .council-toolbar-inner {
+    padding: 6px 10px;
+  }
+  
+  .council-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+}
