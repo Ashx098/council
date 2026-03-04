@@ -4,7 +4,7 @@
  * Handles the popup panel UI.
  */
 
-// Elements
+// Elements - all nullable
 const statusDot = document.getElementById('status-dot');
 const statusText = document.getElementById('status-text');
 const hubUrlInput = document.getElementById('hub-url');
@@ -26,34 +26,40 @@ const createPairBtn = document.getElementById('create-pair-btn');
  * Load and display config.
  */
 async function loadConfig() {
-  const response = await chrome.runtime.sendMessage({ action: 'getConfig' });
-  hubUrlInput.value = response.hubUrl || 'http://127.0.0.1:7337';
-  
-  // Load toggle states
-  autoPullToggle.checked = response.autoPull || false;
-  notifyPatchToggle.checked = response.notifyOnPatch || false;
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'getConfig' });
+    if (hubUrlInput) hubUrlInput.value = response?.hubUrl || 'http://127.0.0.1:7337';
+    if (autoPullToggle) autoPullToggle.checked = response?.autoPull || false;
+    if (notifyPatchToggle) notifyPatchToggle.checked = response?.notifyOnPatch || false;
+  } catch (e) {
+    console.error('Failed to load config:', e);
+  }
 }
 
 /**
  * Save config.
  */
 async function saveConfig() {
-  const hubUrl = hubUrlInput.value.trim();
-  const autoPull = autoPullToggle.checked;
-  const notifyOnPatch = notifyPatchToggle.checked;
+  const hubUrl = hubUrlInput?.value?.trim() || 'http://127.0.0.1:7337';
+  const autoPull = autoPullToggle?.checked || false;
+  const notifyOnPatch = notifyPatchToggle?.checked || false;
   
-  await chrome.runtime.sendMessage({
-    action: 'setConfig',
-    config: { hubUrl, autoPull, notifyOnPatch }
-  });
+  try {
+    await chrome.runtime.sendMessage({
+      action: 'setConfig',
+      config: { hubUrl, autoPull, notifyOnPatch }
+    });
+  } catch (e) {
+    console.error('Failed to save config:', e);
+  }
   
-  // Visual feedback
-  saveBtn.textContent = 'Saved!';
-  setTimeout(() => {
-    saveBtn.textContent = 'Save';
-  }, 1500);
+  if (saveBtn) {
+    saveBtn.textContent = 'Saved!';
+    setTimeout(() => {
+      if (saveBtn) saveBtn.textContent = 'Save';
+    }, 1500);
+  }
   
-  // Re-check health
   checkHealth();
 }
 
@@ -61,27 +67,27 @@ async function saveConfig() {
  * Test hub connection.
  */
 async function testConnection() {
-  const hubUrl = hubUrlInput.value.trim();
+  const hubUrl = hubUrlInput?.value?.trim() || 'http://127.0.0.1:7337';
   
-  testBtn.textContent = 'Testing...';
+  if (testBtn) testBtn.textContent = 'Testing...';
   
   try {
     const response = await fetch(`${hubUrl}/health`);
     if (response.ok) {
       const data = await response.json();
-      testBtn.textContent = 'OK!';
+      if (testBtn) testBtn.textContent = 'OK!';
       updateStatus(true, `Connected (${data.version || 'ok'})`);
     } else {
-      testBtn.textContent = 'Failed';
+      if (testBtn) testBtn.textContent = 'Failed';
       updateStatus(false, `HTTP ${response.status}`);
     }
   } catch (error) {
-    testBtn.textContent = 'Error';
+    if (testBtn) testBtn.textContent = 'Error';
     updateStatus(false, error.message);
   }
   
   setTimeout(() => {
-    testBtn.textContent = 'Test';
+    if (testBtn) testBtn.textContent = 'Test';
   }, 2000);
 }
 
@@ -89,12 +95,15 @@ async function testConnection() {
  * Check hub health via background script.
  */
 async function checkHealth() {
-  const response = await chrome.runtime.sendMessage({ action: 'checkHealth' });
-  
-  if (response && response.healthy) {
-    updateStatus(true, `Connected (${response.data?.version || 'ok'})`);
-  } else {
-    updateStatus(false, response?.error || 'Disconnected');
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'checkHealth' });
+    if (response && response.healthy) {
+      updateStatus(true, `Connected (${response.data?.version || 'ok'})`);
+    } else {
+      updateStatus(false, response?.error || 'Disconnected');
+    }
+  } catch (e) {
+    updateStatus(false, 'Extension error');
   }
 }
 
@@ -102,17 +111,18 @@ async function checkHealth() {
  * Update status display.
  */
 function updateStatus(ok, text) {
-  statusDot.classList.toggle('ok', ok);
-  statusDot.classList.toggle('error', !ok);
-  statusText.textContent = text;
+  if (statusDot) {
+    statusDot.classList.toggle('ok', ok);
+    statusDot.classList.toggle('error', !ok);
+  }
+  if (statusText) statusText.textContent = text;
   
-  // Update SSE indicator
   if (ok) {
-    sseIndicator.classList.add('active');
-    sseStatusText.textContent = 'SSE: Active';
+    if (sseIndicator) sseIndicator.classList.add('active');
+    if (sseStatusText) sseStatusText.textContent = 'SSE: Active';
   } else {
-    sseIndicator.classList.remove('active');
-    sseStatusText.textContent = 'SSE: Disconnected';
+    if (sseIndicator) sseIndicator.classList.remove('active');
+    if (sseStatusText) sseStatusText.textContent = 'SSE: Disconnected';
   }
 }
 
@@ -120,15 +130,17 @@ function updateStatus(ok, text) {
  * Get current tab's thread ID.
  */
 async function getThreadId() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  
-  if (tab && tab.url) {
-    const match = tab.url.match(/\/c\/([a-f0-9-]+)/i);
-    if (match) {
-      return match[1];
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.url) {
+      const match = tab.url.match(/\/c\/([a-f0-9-]+)/i);
+      if (match) {
+        return match[1];
+      }
     }
+  } catch (e) {
+    console.error('Failed to get thread ID:', e);
   }
-  
   return '-';
 }
 
@@ -145,29 +157,34 @@ async function clearCursor() {
   
   const sessionId = `cgpt:${threadId}`;
   
-  await chrome.runtime.sendMessage({
-    action: 'setCursor',
-    sessionId,
-    cursor: 0
-  });
+  try {
+    await chrome.runtime.sendMessage({
+      action: 'setCursor',
+      sessionId,
+      cursor: 0
+    });
+    
+    await chrome.runtime.sendMessage({
+      action: 'clearUpdates',
+      sessionId
+    });
+  } catch (e) {
+    console.error('Failed to clear cursor:', e);
+  }
   
-  // Also clear updates
-  await chrome.runtime.sendMessage({
-    action: 'clearUpdates',
-    sessionId
-  });
-  
-  clearCursorBtn.textContent = 'Cleared!';
-  setTimeout(() => {
-    clearCursorBtn.textContent = 'Clear Cursor';
-  }, 1500);
+  if (clearCursorBtn) {
+    clearCursorBtn.textContent = 'Cleared!';
+    setTimeout(() => {
+      if (clearCursorBtn) clearCursorBtn.textContent = 'Clear Cursor';
+    }, 1500);
+  }
 }
 
 /**
  * Open hub in new tab.
  */
 function openHub() {
-  const hubUrl = hubUrlInput.value.trim();
+  const hubUrl = hubUrlInput?.value?.trim() || 'http://127.0.0.1:7337';
   chrome.tabs.create({ url: hubUrl });
 }
 
@@ -178,54 +195,66 @@ async function updateSSEStatus() {
   const threadId = await getThreadId();
   
   if (threadId === '-') {
-    sseStatusText.textContent = 'SSE: No session';
-    sseIndicator.classList.remove('active');
+    if (sseStatusText) sseStatusText.textContent = 'SSE: No session';
+    if (sseIndicator) sseIndicator.classList.remove('active');
     return;
   }
   
   const sessionId = `cgpt:${threadId}`;
   
-  // Get session state
-  const stateResponse = await chrome.runtime.sendMessage({
-    action: 'getSessionState',
-    sessionId
-  });
+  let state = null;
+  let updateCount = 0;
   
-  // Get update count
-  const countResponse = await chrome.runtime.sendMessage({
-    action: 'getUpdateCount',
-    sessionId
-  });
-  
-  const state = stateResponse?.state;
-  const updateCount = countResponse?.count || 0;
-  
-  // Update indicator based on status
-  if (state?.status === 'connected') {
-    sseIndicator.classList.add('active');
-    sseIndicator.style.background = '#10b981';
+  try {
+    const stateResponse = await chrome.runtime.sendMessage({
+      action: 'getSessionState',
+      sessionId
+    });
+    state = stateResponse?.state;
     
-    if (updateCount > 0) {
-      sseStatusText.textContent = `SSE: ${updateCount} update(s)`;
-    } else {
-      sseStatusText.textContent = 'SSE: Connected';
+    const countResponse = await chrome.runtime.sendMessage({
+      action: 'getUpdateCount',
+      sessionId
+    });
+    updateCount = countResponse?.count || 0;
+  } catch (e) {
+    console.error('Failed to get SSE status:', e);
+  }
+  
+  if (state?.status === 'connected') {
+    if (sseIndicator) {
+      sseIndicator.classList.add('active');
+      sseIndicator.style.background = '#10b981';
+    }
+    if (sseStatusText) {
+      sseStatusText.textContent = updateCount > 0 
+        ? `SSE: ${updateCount} update(s)` 
+        : 'SSE: Connected';
     }
   } else if (state?.status === 'stale') {
-    sseIndicator.classList.remove('active');
-    sseIndicator.style.background = '#f59e0b';
-    sseStatusText.textContent = 'SSE: Stale (paused)';
+    if (sseIndicator) {
+      sseIndicator.classList.remove('active');
+      sseIndicator.style.background = '#f59e0b';
+    }
+    if (sseStatusText) sseStatusText.textContent = 'SSE: Stale (paused)';
   } else if (state?.status === 'reconnecting') {
-    sseIndicator.classList.remove('active');
-    sseIndicator.style.background = '#f59e0b';
-    sseStatusText.textContent = 'SSE: Reconnecting...';
+    if (sseIndicator) {
+      sseIndicator.classList.remove('active');
+      sseIndicator.style.background = '#f59e0b';
+    }
+    if (sseStatusText) sseStatusText.textContent = 'SSE: Reconnecting...';
   } else if (state?.status === 'connecting') {
-    sseIndicator.classList.remove('active');
-    sseIndicator.style.background = '#3b82f6';
-    sseStatusText.textContent = 'SSE: Connecting...';
+    if (sseIndicator) {
+      sseIndicator.classList.remove('active');
+      sseIndicator.style.background = '#3b82f6';
+    }
+    if (sseStatusText) sseStatusText.textContent = 'SSE: Connecting...';
   } else {
-    sseIndicator.classList.remove('active');
-    sseIndicator.style.background = '#6b7280';
-    sseStatusText.textContent = 'SSE: Disconnected';
+    if (sseIndicator) {
+      sseIndicator.classList.remove('active');
+      sseIndicator.style.background = '#6b7280';
+    }
+    if (sseStatusText) sseStatusText.textContent = 'SSE: Disconnected';
   }
 }
 
@@ -241,15 +270,19 @@ async function reconnectSSE() {
   
   const sessionId = `cgpt:${threadId}`;
   
-  reconnectBtn.textContent = 'Reconnecting...';
+  if (reconnectBtn) reconnectBtn.textContent = 'Reconnecting...';
   
-  await chrome.runtime.sendMessage({
-    action: 'reconnect',
-    sessionId
-  });
+  try {
+    await chrome.runtime.sendMessage({
+      action: 'reconnect',
+      sessionId
+    });
+  } catch (e) {
+    console.error('Failed to reconnect:', e);
+  }
   
   setTimeout(() => {
-    reconnectBtn.textContent = 'Reconnect';
+    if (reconnectBtn) reconnectBtn.textContent = 'Reconnect';
     updateSSEStatus();
   }, 1000);
 }
@@ -261,18 +294,29 @@ async function createPairCode() {
   const threadId = await getThreadId();
   
   if (threadId === '-') {
-    pairCodeDisplay.textContent = 'No session';
+    if (pairCodeDisplay) pairCodeDisplay.textContent = 'No session';
     return;
   }
   
   const sessionId = `cgpt:${threadId}`;
-  const config = await chrome.runtime.sendMessage({ action: 'getConfig' });
   
-  createPairBtn.textContent = 'Creating...';
-  createPairBtn.disabled = true;
+  let config;
+  try {
+    config = await chrome.runtime.sendMessage({ action: 'getConfig' });
+  } catch (e) {
+    console.error('Failed to get config:', e);
+    if (pairCodeDisplay) pairCodeDisplay.textContent = 'Error';
+    return;
+  }
+  
+  if (createPairBtn) {
+    createPairBtn.textContent = 'Creating...';
+    createPairBtn.disabled = true;
+  }
   
   try {
-    const response = await fetch(`${config.hubUrl}/v1/pair/create`, {
+    const hubUrl = config?.hubUrl || 'http://127.0.0.1:7337';
+    const response = await fetch(`${hubUrl}/v1/pair/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -287,22 +331,26 @@ async function createPairCode() {
     
     const data = await response.json();
     
-    // Display the code
-    pairCodeDisplay.textContent = data.code;
-    pairCodeDisplay.style.fontSize = '24px';
-    pairCodeDisplay.style.fontWeight = 'bold';
-    pairCodeDisplay.style.color = '#10b981';
+    if (pairCodeDisplay) {
+      pairCodeDisplay.textContent = data.code;
+      pairCodeDisplay.style.fontSize = '24px';
+      pairCodeDisplay.style.fontWeight = 'bold';
+      pairCodeDisplay.style.color = '#10b981';
+    }
     
-    // Start countdown
     startPairCountdown(data.expires_at);
     
-    createPairBtn.textContent = 'Refresh Code';
-    createPairBtn.disabled = false;
+    if (createPairBtn) {
+      createPairBtn.textContent = 'Refresh Code';
+      createPairBtn.disabled = false;
+    }
   } catch (error) {
     console.error('Failed to create pair code:', error);
-    pairCodeDisplay.textContent = 'Error';
-    createPairBtn.textContent = 'Create Pair Code';
-    createPairBtn.disabled = false;
+    if (pairCodeDisplay) pairCodeDisplay.textContent = 'Error';
+    if (createPairBtn) {
+      createPairBtn.textContent = 'Create Pair Code';
+      createPairBtn.disabled = false;
+    }
   }
 }
 
@@ -310,7 +358,6 @@ async function createPairCode() {
  * Start countdown timer for pairing code expiration.
  */
 function startPairCountdown(expiresAt) {
-  // Clear any existing interval
   if (window.pairCountdownInterval) {
     clearInterval(window.pairCountdownInterval);
   }
@@ -321,15 +368,17 @@ function startPairCountdown(expiresAt) {
     const remaining = Math.max(0, expires - now);
     
     if (remaining === 0) {
-      pairExpires.textContent = '(expired)';
-      pairCodeDisplay.style.color = '#6b7280';
+      if (pairExpires) pairExpires.textContent = '(expired)';
+      if (pairCodeDisplay) pairCodeDisplay.style.color = '#6b7280';
       clearInterval(window.pairCountdownInterval);
       return;
     }
     
     const minutes = Math.floor(remaining / 60000);
     const seconds = Math.floor((remaining % 60000) / 1000);
-    pairExpires.textContent = `(${minutes}:${seconds.toString().padStart(2, '0')})`;
+    if (pairExpires) {
+      pairExpires.textContent = `(${minutes}:${seconds.toString().padStart(2, '0')})`;
+    }
   };
   
   updateCountdown();
@@ -342,21 +391,16 @@ if (saveBtn) saveBtn.addEventListener('click', saveConfig);
 if (testBtn) testBtn.addEventListener('click', testConnection);
 if (clearCursorBtn) clearCursorBtn.addEventListener('click', clearCursor);
 if (openHubBtn) openHubBtn.addEventListener('click', openHub);
-if (reconnectBtn) {
-  reconnectBtn.addEventListener('click', reconnectSSE);
-}
-
-// Toggle listeners
+if (reconnectBtn) reconnectBtn.addEventListener('click', reconnectSSE);
 if (autoPullToggle) autoPullToggle.addEventListener('change', saveConfig);
 if (notifyPatchToggle) notifyPatchToggle.addEventListener('change', saveConfig);
-if (createPairBtn) {
-  createPairBtn.addEventListener('click', createPairCode);
-}
+if (createPairBtn) createPairBtn.addEventListener('click', createPairCode);
+
 // Initialize
 loadConfig();
 checkHealth();
 getThreadId().then(id => {
-  threadIdEl.textContent = id || '-';
+  if (threadIdEl) threadIdEl.textContent = id || '-';
 });
 updateSSEStatus();
 
