@@ -1,307 +1,504 @@
 # Council Protocol Specification
 
-> Phase 1 MVP - Minimal but correct implementation
+API specification for the Council Hub.
 
-## Overview
+**Base URL**: `http://127.0.0.1:7337`
 
-This document defines the event types, artifact kinds, size budgets, and API contracts for the Council Hub. All specifications are designed for Phase 1 implementation with minimal scope.
+---
+
+## Endpoints Overview
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| POST | `/v1/sessions/{id}/events` | Ingest events |
+| GET | `/v1/sessions/{id}/events` | List events |
+| GET | `/v1/sessions/{id}/digest` | Get bounded digest |
+| GET | `/v1/sessions/{id}/stream` | SSE stream |
+| GET | `/v1/sessions/{id}/context` | Context pack |
+| POST | `/v1/pair/create` | Create pairing code |
+| POST | `/v1/pair/claim` | Claim pairing code |
+| GET | `/v1/pair/{code}` | Get pairing status |
+| GET | `/v1/pair/session/{id}` | Get session pairing |
+
+---
+
+## Health
+
+### GET /health
+
+Health check endpoint.
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0-phase5"
+}
+```
+
+---
+
+## Events
+
+### POST /v1/sessions/{session_id}/events
+
+Ingest one or more events.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| session_id | string | Session identifier (e.g., `cgpt:abc123`) |
+
+**Request Body:**
+
+```json
+{
+  "source": "user",
+  "type": "message",
+  "body": "Please refactor the auth module",
+  "meta": {}
+}
+```
+
+**Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| source | string | Yes | Event source (see Sources) |
+| type | string | Yes | Event type (see Types) |
+| body | string | No | Event content (max 4000 chars) |
+| meta | object | No | Additional metadata |
+
+**Response:**
+
+```json
+{
+  "event_id": 42,
+  "session_id": "cgpt:abc123",
+  "ts": "2024-01-15T10:30:00Z"
+}
+```
+
+**Status Codes:**
+
+| Code | Description |
+|------|-------------|
+| 201 | Event created |
+| 400 | Invalid source/type |
+| 503 | Service not initialized |
+
+### GET /v1/sessions/{session_id}/events
+
+List events for a session.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| after | int | 0 | Only events with id > after |
+| limit | int | 100 | Max events to return |
+
+**Response:**
+
+```json
+{
+  "events": [
+    {
+      "event_id": 1,
+      "session_id": "cgpt:abc123",
+      "ts": "2024-01-15T10:30:00Z",
+      "source": "user",
+      "type": "message",
+      "body": "Hello",
+      "meta": {}
+    }
+  ],
+  "next_cursor": 1,
+  "has_more": false
+}
+```
+
+---
+
+## Digest
+
+### GET /v1/sessions/{session_id}/digest
+
+Get a bounded digest of session events.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| after | int | 0 | Only events with id > after |
+
+**Response:**
+
+```json
+{
+  "session_id": "cgpt:abc123",
+  "digest_text": "# Council Digest\n\n## Events (3)\n\n...",
+  "event_count": 3,
+  "next_cursor": 42,
+  "truncated": false
+}
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| digest_text | string | Formatted digest (max 12,000 chars) |
+| event_count | int | Number of events included |
+| next_cursor | int | Cursor for next fetch |
+| truncated | bool | Whether digest was truncated |
+
+---
+
+## SSE Stream
+
+### GET /v1/sessions/{session_id}/stream
+
+Server-Sent Events stream for real-time updates.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| after | int | Only events with id > after |
+
+**Headers:**
+
+| Header | Description |
+|--------|-------------|
+| Accept | Should be `text/event-stream` |
+| Last-Event-ID | Reconnect cursor (alternative to `after`) |
+
+**Response Format:**
+
+```
+Content-Type: text/event-stream
+
+event: hello
+data: {"type":"connected","after":0}
+
+event: council_event
+id: 42
+data: {"event_id":42,"ts":"...","source":"wrapper","type":"run_report","body_preview":"...","meta":{}}
+
+event: council_event
+id: 43
+data: {"event_id":43,...}
+
+: keepalive
+```
+
+**Event Types:**
+
+| Event | Description |
+|-------|-------------|
+| hello | Sent on connection |
+| council_event | New event ingested |
+| keepalive | Empty comment (every 15s) |
+
+**SSE Event Fields:**
+
+| Field | Description |
+|-------|-------------|
+| id | Event ID (for reconnect) |
+| event | Event type |
+| data | JSON payload |
+
+**Payload Structure:**
+
+```json
+{
+  "event_id": 42,
+  "ts": "2024-01-15T10:30:00Z",
+  "source": "wrapper",
+  "type": "run_report",
+  "body_preview": "First 200 chars of body...",
+  "meta": {
+    "exit_code": 0,
+    "duration_ms": 1500
+  }
+}
+```
+
+---
+
+## Context Pack
+
+### GET /v1/sessions/{session_id}/context
+
+Get a context pack for AI consumption.
+
+**Response:**
+
+```json
+{
+  "session_id": "cgpt:abc123",
+  "repo_root": "/home/user/project",
+  "event_count": 15,
+  "latest_events": [...],
+  "artifacts": [
+    {
+      "artifact_id": "art_001",
+      "kind": "patch",
+      "byte_size": 2048
+    }
+  ]
+}
+```
+
+---
+
+## Pairing
+
+### POST /v1/pair/create
+
+Create a new pairing code.
+
+**Request Body:**
+
+```json
+{
+  "session_id": "cgpt:abc123",
+  "ttl_minutes": 10
+}
+```
+
+**Response:**
+
+```json
+{
+  "code": "AB7K",
+  "session_id": "cgpt:abc123",
+  "repo_root": null,
+  "created_at": "2024-01-15T10:30:00Z",
+  "expires_at": "2024-01-15T10:40:00Z",
+  "claimed_at": null,
+  "claimed_by": null
+}
+```
+
+### POST /v1/pair/claim
+
+Claim a pairing code.
+
+**Request Body:**
+
+```json
+{
+  "code": "AB7K",
+  "claimed_by": "my-laptop",
+  "repo_root": "/home/user/project"
+}
+```
+
+**Response:**
+
+```json
+{
+  "code": "AB7K",
+  "session_id": "cgpt:abc123",
+  "repo_root": "/home/user/project",
+  "created_at": "2024-01-15T10:30:00Z",
+  "expires_at": "2024-01-15T10:40:00Z",
+  "claimed_at": "2024-01-15T10:35:00Z",
+  "claimed_by": "my-laptop"
+}
+```
+
+**Errors:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 400 | Invalid or expired pairing code | Code not found or expired |
+| 400 | Pairing code already claimed | Code was claimed by another |
+
+### GET /v1/pair/{code}
+
+Get pairing code status.
+
+**Response:** Same as POST /v1/pair/create response.
+
+**Errors:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 404 | pairing_not_found | Code doesn't exist or expired |
+
+### GET /v1/pair/session/{session_id}
+
+Get active pairing for a session.
+
+**Response:** Same as POST /v1/pair/create response.
+
+**Errors:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 404 | no_active_pairing | No unclaimed code for session |
+
+---
+
+## Event Sources
+
+| Source | Description |
+|--------|-------------|
+| `user` | Direct user input |
+| `chatgpt` | From ChatGPT |
+| `opencode` | From OpenCode agent |
+| `claude_code` | From Claude Code agent |
+| `wrapper` | From CLI wrapper |
 
 ---
 
 ## Event Types
 
-Events are append-only records stored per session. Each event has a monotonic `event_id` (AUTOINCREMENT) for cursor-based pagination.
-
-### Event Type Enum
-
-| Type | Description | Source |
-|------|-------------|--------|
-| `message` | Chat message from user or ChatGPT | user, chatgpt |
-| `task_brief` | Task description/assignment | chatgpt |
-| `question` | Open question requiring response | chatgpt, wrapper |
-| `patch` | Code change summary with artifact reference | wrapper |
-| `tool_run` | Tool execution (linter, formatter, etc.) | wrapper |
-| `test_result` | Test run output with pass/fail status | wrapper |
-| `run_report` | Final summary after executor completes | wrapper |
-| `decision` | Pinned decision or constraint | chatgpt, user |
-| `milestone` | Significant checkpoint event | wrapper, chatgpt |
-
-### Milestone Event Subtypes
-
-Milestone events indicate significant state changes:
-
-| Subtype | Trigger |
-|---------|---------|
-| `executor_started` | Wrapper begins execution |
-| `executor_finished` | Wrapper completes successfully |
-| `executor_failed` | Wrapper exits with error |
-| `tests_passing` | All tests pass |
-| `tests_failing` | One or more tests fail |
-| `patch_applied` | Code changes committed/pushed |
-| `question_asked` | Human input required |
+| Type | Description | Meta Fields |
+|------|-------------|-------------|
+| `message` | Chat message | - |
+| `task_brief` | Task description | `priority`, `deadline` |
+| `question` | Open question | `context` |
+| `patch` | Code change | `files_changed`, `lines_added`, `lines_removed` |
+| `tool_run` | Tool execution | `tool_name`, `exit_code` |
+| `test_result` | Test output | `exit_code`, `test_count`, `pass_count`, `fail_count` |
+| `run_report` | Execution summary | `exit_code`, `duration_ms`, `files_touched` |
+| `decision` | Pinned decision | `approved`, `rationale` |
+| `milestone` | Checkpoint | `kind` |
 
 ---
 
 ## Artifact Kinds
 
-Artifacts store large content on disk. Raw content is never inlined in events.
-
-### Artifact Kind Enum
-
-| Kind | Content Type | Max Size |
-|------|--------------|----------|
-| `patch` | Git diff output | 10 MB |
-| `test_log` | Test command output | 5 MB |
-| `command_output` | Generic command output | 5 MB |
-| `repo_map` | Repository structure snapshot | 1 MB |
-| `run_log` | Full execution transcript | 10 MB |
-
-### Artifact Storage
-
-- Location: `~/.council/artifacts/<session_id>/<artifact_id>.bin`
-- Metadata stored in `artifacts` table (size, sha256, kind)
-- Content is stored raw (no compression in Phase 1)
+| Kind | Description |
+|------|-------------|
+| `patch` | Git diff |
+| `test_log` | Test output |
+| `command_output` | CLI output |
+| `repo_map` | Repository structure |
+| `run_log` | Execution log |
 
 ---
 
 ## Size Budgets
 
-Hard limits to prevent context bloat. Digest generation must enforce these bounds.
-
-### Digest Budgets
-
-| Budget | Limit | Description |
-|--------|-------|-------------|
-| `DIGEST_MAX_CHARS` | 12,000 | Maximum characters in digest text |
-| `DIGEST_MAX_EVENTS` | 100 | Maximum events processed per digest request |
-
-### Patch Budgets
-
-| Budget | Limit | Description |
-|--------|-------|-------------|
-| `PATCH_MAX_HUNKS_PER_FILE` | 3 | Number of diff hunks to include per file |
-| `PATCH_MAX_LINES_PER_HUNK` | 20 | Lines per hunk in digest |
-| `PATCH_MAX_FILES_IN_DIGEST` | 10 | File summaries in patch digest |
-
-### Log Budgets
-
-| Budget | Limit | Description |
-|--------|-------|-------------|
-| `LOG_MAX_LINES` | 200 | Total lines from log in digest |
-| `LOG_TAIL_LINES` | 50 | Lines from end of log |
-| `LOG_ERROR_WINDOW` | 10 | Lines around each error keyword |
-
-### Error Keywords
-
-Logs are scanned for these keywords to extract error context:
-
-```python
-ERROR_KEYWORDS = [
-    "Error:",
-    "ERROR",
-    "Traceback",
-    "FAILED",
-    "FAIL:",
-    "panic:",
-    "panic(",
-    "Exception",
-    "SyntaxError",
-    "TypeError",
-    "ValueError",
-    "AssertionError",
-]
-```
+| Budget | Value |
+|--------|-------|
+| Digest max chars | 12,000 |
+| Event body max chars | 4,000 |
+| Patch hunks per file | 3 |
+| Lines per hunk | 20 |
+| Log max lines | 200 |
+| SSE body preview | 200 |
+| Pairing code TTL | 10 minutes (default) |
 
 ---
 
-## Event Schema
+## Error Responses
 
-### Event Object
+All errors follow this format:
 
 ```json
 {
-  "event_id": 42,
-  "session_id": "cgpt:thread_abc123",
-  "ts": "2026-03-04T12:00:00Z",
-  "source": "wrapper",
-  "type": "patch",
-  "body": "Modified src/auth.py: +45/-12 lines",
-  "meta": {
-    "files_changed": ["src/auth.py"],
-    "lines_added": 45,
-    "lines_removed": 12,
-    "artifact_id": "art_123"
+  "detail": "Error message"
+}
+```
+
+Or for structured errors:
+
+```json
+{
+  "detail": {
+    "error": "error_code",
+    "message": "Human readable message"
   }
 }
 ```
 
-### Field Definitions
+---
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `event_id` | integer | auto | Monotonic cursor (AUTOINCREMENT) |
-| `session_id` | string | yes | Format: `cgpt:<thread_id>` or `session:<uuid>` |
-| `ts` | ISO8601 | auto | Server timestamp |
-| `source` | enum | yes | `user`, `chatgpt`, `opencode`, `claude_code`, `wrapper` |
-| `type` | enum | yes | Event type from table above |
-| `body` | string(4000) | yes | Summary text (truncated to fit) |
-| `meta` | JSON | no | Structured metadata (varies by type) |
+## CORS
 
-### Meta Schema by Type
+The hub includes CORS middleware allowing:
 
-**patch:**
-```json
-{
-  "files_changed": ["src/auth.py"],
-  "lines_added": 45,
-  "lines_removed": 12,
-  "artifact_id": "art_123",
-  "commit_hash": "abc123"  // optional
-}
-```
-
-**test_result:**
-```json
-{
-  "command": "pytest tests/",
-  "exit_code": 1,
-  "passed": 42,
-  "failed": 3,
-  "skipped": 1,
-  "artifact_id": "art_124"
-}
-```
-
-**tool_run:**
-```json
-{
-  "command": "ruff check src/",
-  "exit_code": 0,
-  "duration_ms": 1500,
-  "artifact_id": "art_125"  // optional
-}
-```
-
-**run_report:**
-```json
-{
-  "status": "success",  // or "failure", "partial"
-  "summary": "Fixed auth bug and added tests",
-  "questions": ["Should I refactor the user model?"],
-  "patches": ["art_123"],
-  "tests": ["art_124"]
-}
-```
+- Origins: `*` (all origins for local development)
+- Methods: `GET, POST, OPTIONS`
+- Headers: `Content-Type, Authorization`
 
 ---
 
-## Digest Format
+## Rate Limiting
 
-The digest is a bounded, human-readable summary safe for ChatGPT context.
+No rate limiting is enforced. The hub is designed for single-user local development.
 
-### Digest Response
+---
+
+## Versioning
+
+The API version is returned in the health endpoint:
 
 ```json
 {
-  "digest_text": "[bounded text per budgets]",
-  "milestones": [
-    {"event_id": 10, "subtype": "executor_started", "ts": "..."},
-    {"event_id": 25, "subtype": "tests_failing", "ts": "..."}
-  ],
-  "next_cursor": 42,
-  "has_more": true
+  "status": "healthy",
+  "version": "1.0.0-phase5"
 }
 ```
 
-### Digest Text Structure
-
-```
-## Summary
-[Last run_report or milestone summary]
-
-## Changes
-[Patch summaries - file list + line counts + top hunks]
-
-## Tests
-[Test results - pass/fail counts + error excerpts]
-
-## Open Questions
-[List of unanswered question events]
-```
-
-### Digest Generation Rules
-
-1. **Always bounded**: Never exceed DIGEST_MAX_CHARS
-2. **Deterministic**: Same events produce same digest (no LLM in Phase 1)
-3. **Truncation priority**: Keep recent events, truncate older ones
-4. **Artifact references**: Include `artifact_id` for full content access
+Version format: `MAJOR.MINOR.PATCH-phase`
 
 ---
 
-## Session Schema
+## Examples
 
-### Session Object
+### Ingest a Message
 
-```json
-{
-  "session_id": "cgpt:thread_abc123",
-  "repo_root": "/home/user/myproject",
-  "title": "Auth system refactor",
-  "created_at": "2026-03-04T10:00:00Z",
-  "updated_at": "2026-03-04T12:00:00Z",
-  "event_count": 42
-}
+```bash
+curl -X POST http://127.0.0.1:7337/v1/sessions/cgpt:abc123/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "user",
+    "type": "message",
+    "body": "Please refactor the auth module to use the adapter pattern"
+  }'
 ```
 
-### Session ID Format
+### Get Digest
 
-| Prefix | Format | Example |
-|--------|--------|---------|
-| `cgpt:` | ChatGPT thread ID | `cgpt:thread_abc123` |
-| `session:` | UUID for non-ChatGPT sessions | `session:550e8400-e29b-41d4-a716-446655440000` |
-
----
-
-## API Contracts
-
-### Error Responses
-
-All errors return JSON with `error` field:
-
-```json
-{
-  "error": "session_not_found",
-  "message": "Session cgpt:thread_abc123 does not exist"
-}
+```bash
+curl http://127.0.0.1:7337/v1/sessions/cgpt:abc123/digest?after=0
 ```
 
-### Common Error Codes
+### Connect to SSE Stream
 
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `session_not_found` | 404 | Session does not exist |
-| `invalid_cursor` | 400 | Cursor parameter invalid |
-| `invalid_event_type` | 400 | Unknown event type |
-| `artifact_not_found` | 404 | Artifact does not exist |
-| `payload_too_large` | 413 | Request body exceeds limit |
-| `internal_error` | 500 | Unexpected server error |
+```bash
+curl -N http://127.0.0.1:7337/v1/sessions/cgpt:abc123/stream?after=0
+```
 
----
+### Create Pairing Code
 
-## Phase 1 Limitations
+```bash
+curl -X POST http://127.0.0.1:7337/v1/pair/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "cgpt:abc123",
+    "ttl_minutes": 10
+  }'
+```
 
-Explicitly out of scope for Phase 1:
+### Claim Pairing Code
 
-- **LLM summarization**: Digest uses deterministic truncation only
-- **Compression**: Artifacts stored raw
-- **Authentication**: No auth layer (local-only)
-- **Migration system**: SQLite schema created fresh
-- **SSE/streaming**: Polling only (streaming in Phase 4)
-- **Pairing system**: Manual session_id entry (pairing in Phase 5)
-- **Extension**: CLI and curl only
-
----
-
-## Version
-
-Protocol Version: `1.0.0-phase1`
+```bash
+curl -X POST http://127.0.0.1:7337/v1/pair/claim \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "AB7K",
+    "claimed_by": "my-laptop",
+    "repo_root": "/home/user/project"
+  }'
+```
