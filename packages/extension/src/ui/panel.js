@@ -17,6 +17,7 @@ const autoPullToggle = document.getElementById('auto-pull-toggle');
 const notifyPatchToggle = document.getElementById('notify-patch-toggle');
 const sseIndicator = document.getElementById('sse-indicator');
 const sseStatusText = document.getElementById('sse-status-text');
+const reconnectBtn = document.getElementById('reconnect-btn');
 
 /**
  * Load and display config.
@@ -179,18 +180,75 @@ async function updateSSEStatus() {
     return;
   }
   
-  // Check if we have updates pending
   const sessionId = `cgpt:${threadId}`;
-  const response = await chrome.runtime.sendMessage({
+  
+  // Get session state
+  const stateResponse = await chrome.runtime.sendMessage({
+    action: 'getSessionState',
+    sessionId
+  });
+  
+  // Get update count
+  const countResponse = await chrome.runtime.sendMessage({
     action: 'getUpdateCount',
     sessionId
   });
   
-  if (response && response.count > 0) {
-    sseStatusText.textContent = `SSE: ${response.count} update(s)`;
+  const state = stateResponse?.state;
+  const updateCount = countResponse?.count || 0;
+  
+  // Update indicator based on status
+  if (state?.status === 'connected') {
+    sseIndicator.classList.add('active');
+    sseIndicator.style.background = '#10b981';
+    
+    if (updateCount > 0) {
+      sseStatusText.textContent = `SSE: ${updateCount} update(s)`;
+    } else {
+      sseStatusText.textContent = 'SSE: Connected';
+    }
+  } else if (state?.status === 'stale') {
+    sseIndicator.classList.remove('active');
+    sseIndicator.style.background = '#f59e0b';
+    sseStatusText.textContent = 'SSE: Stale (paused)';
+  } else if (state?.status === 'reconnecting') {
+    sseIndicator.classList.remove('active');
+    sseIndicator.style.background = '#f59e0b';
+    sseStatusText.textContent = 'SSE: Reconnecting...';
+  } else if (state?.status === 'connecting') {
+    sseIndicator.classList.remove('active');
+    sseIndicator.style.background = '#3b82f6';
+    sseStatusText.textContent = 'SSE: Connecting...';
   } else {
-    sseStatusText.textContent = 'SSE: Active';
+    sseIndicator.classList.remove('active');
+    sseIndicator.style.background = '#6b7280';
+    sseStatusText.textContent = 'SSE: Disconnected';
   }
+}
+
+/**
+ * Reconnect SSE for current session.
+ */
+async function reconnectSSE() {
+  const threadId = await getThreadId();
+  
+  if (threadId === '-') {
+    return;
+  }
+  
+  const sessionId = `cgpt:${threadId}`;
+  
+  reconnectBtn.textContent = 'Reconnecting...';
+  
+  await chrome.runtime.sendMessage({
+    action: 'reconnect',
+    sessionId
+  });
+  
+  setTimeout(() => {
+    reconnectBtn.textContent = 'Reconnect';
+    updateSSEStatus();
+  }, 1000);
 }
 
 // Event listeners
@@ -198,6 +256,9 @@ saveBtn.addEventListener('click', saveConfig);
 testBtn.addEventListener('click', testConnection);
 clearCursorBtn.addEventListener('click', clearCursor);
 openHubBtn.addEventListener('click', openHub);
+if (reconnectBtn) {
+  reconnectBtn.addEventListener('click', reconnectSSE);
+}
 
 // Toggle listeners
 autoPullToggle.addEventListener('change', saveConfig);

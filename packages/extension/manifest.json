@@ -3,11 +3,12 @@
   "name": "Council",
   "version": "0.1.0",
   "description": "Sync ChatGPT conversations with Council Hub",
-  "permissions": [
-    "activeTab",
-    "storage",
-    "scripting"
-  ],
+"permissions": [
+"activeTab",
+"storage",
+    "scripting",
+    "alarms"
+],
   "host_permissions": [
     "http://localhost:7337/*",
     "http://127.0.0.1:7337/*",

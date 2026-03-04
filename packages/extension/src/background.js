@@ -2,12 +2,14 @@
  * Council Extension Background Script (Service Worker)
  * 
  * Handles hub HTTP calls, SSE streaming, and message passing.
+ * Phase 4.1: MV3 service worker reliability with alarms.
  */
 
 // Storage keys
 const STORAGE_KEY_PREFIX = 'council_cursor_';
 const CONFIG_KEY = 'council_config';
 const UPDATES_KEY_PREFIX = 'council_updates_';
+const STATE_KEY_PREFIX = 'council_state_';
 
 // SSE connection state per session
 const sseConnections = new Map();
@@ -15,6 +17,11 @@ const sseConnections = new Map();
 // Reconnect backoff settings
 const INITIAL_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_DELAY = 30000;
+
+// Keepalive settings
+const KEEPALIVE_ALARM_NAME = 'council_keepalive';
+const KEEPALIVE_INTERVAL_MINUTES = 1;
+const STALE_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes
 
 // Milestone event types that trigger notifications
 const MILESTONE_TYPES = ['question', 'run_report'];
@@ -110,6 +117,63 @@ async function clearUpdateCount(sessionId) {
 }
 
 /**
+ * Get session state (last_event_ts, status).
+ */
+async function getSessionState(sessionId) {
+  const key = STATE_KEY_PREFIX + sessionId;
+  return new Promise((resolve) => {
+    chrome.storage.local.get([key], (result) => {
+      resolve(result[key] || {
+        lastEventTs: null,
+        status: 'disconnected',
+        lastConnectTs: null
+      });
+    });
+  });
+}
+
+/**
+ * Set session state.
+ */
+async function setSessionState(sessionId, state) {
+  const key = STATE_KEY_PREFIX + sessionId;
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [key]: state }, resolve);
+  });
+}
+
+/**
+ * Update session status.
+ */
+async function updateSessionStatus(sessionId, status) {
+  const state = await getSessionState(sessionId);
+  const now = Date.now();
+  
+  const newState = {
+    ...state,
+    status,
+    lastConnectTs: status === 'connected' ? now : state.lastConnectTs
+  };
+  
+  await setSessionState(sessionId, newState);
+  return newState;
+}
+
+/**
+ * Check if session is stale (no events for > STALE_THRESHOLD_MS).
+ */
+async function isSessionStale(sessionId) {
+  const state = await getSessionState(sessionId);
+  
+  if (!state.lastEventTs) {
+    return false; // Never received events, not stale
+  }
+  
+  const now = Date.now();
+  return (now - state.lastEventTs) > STALE_THRESHOLD_MS;
+}
+
+/**
  * Check hub health.
  */
 async function checkHealth(hubUrl) {
@@ -167,6 +231,7 @@ async function getDigest(hubUrl, sessionId, after) {
 async function startSSE(sessionId, hubUrl, reconnectDelay = INITIAL_RECONNECT_DELAY) {
   // Don't start if already connected
   if (sseConnections.has(sessionId)) {
+    console.log(`[Council SSE] Already connected for ${sessionId}`);
     return;
   }
   
@@ -177,10 +242,14 @@ async function startSSE(sessionId, hubUrl, reconnectDelay = INITIAL_RECONNECT_DE
   
   const connection = {
     abortController: new AbortController(),
-    reconnectDelay
+    reconnectDelay,
+    sessionId
   };
   
   sseConnections.set(sessionId, connection);
+  
+  // Update status to connecting
+  await updateSessionStatus(sessionId, 'connecting');
   
   try {
     const response = await fetch(url, {
@@ -200,6 +269,9 @@ async function startSSE(sessionId, hubUrl, reconnectDelay = INITIAL_RECONNECT_DE
     
     // Reset reconnect delay on successful connection
     connection.reconnectDelay = INITIAL_RECONNECT_DELAY;
+    
+    // Update status to connected
+    await updateSessionStatus(sessionId, 'connected');
     
     while (true) {
       const { done, value } = await reader.read();
@@ -240,6 +312,7 @@ async function startSSE(sessionId, hubUrl, reconnectDelay = INITIAL_RECONNECT_DE
       console.log(`[Council SSE] Connection aborted for ${sessionId}`);
     } else {
       console.error(`[Council SSE] Error for ${sessionId}:`, error.message);
+      await updateSessionStatus(sessionId, 'error');
     }
   } finally {
     sseConnections.delete(sessionId);
@@ -248,8 +321,9 @@ async function startSSE(sessionId, hubUrl, reconnectDelay = INITIAL_RECONNECT_DE
     if (!connection.abortController.signal.aborted) {
       const delay = Math.min(connection.reconnectDelay * 2, MAX_RECONNECT_DELAY);
       console.log(`[Council SSE] Reconnecting ${sessionId} in ${delay}ms`);
+      await updateSessionStatus(sessionId, 'reconnecting');
       
-      setTimeout(() => {
+      setTimeout(async () => {
         const config = await getConfig();
         startSSE(sessionId, config.hubUrl, delay);
       }, delay);
@@ -273,6 +347,14 @@ async function handleSSEEvent(sessionId, eventId, eventData, hubUrl) {
   if (eventId !== null) {
     await setCursor(sessionId, eventId);
   }
+  
+  // Update last event timestamp
+  const state = await getSessionState(sessionId);
+  await setSessionState(sessionId, {
+    ...state,
+    lastEventTs: Date.now(),
+    status: 'connected'
+  });
   
   // Check if milestone
   if (isMilestone(eventData)) {
@@ -326,12 +408,26 @@ async function handleSSEEvent(sessionId, eventId, eventData, hubUrl) {
 /**
  * Stop SSE connection for a session.
  */
-function stopSSE(sessionId) {
+async function stopSSE(sessionId) {
   const connection = sseConnections.get(sessionId);
   if (connection) {
     connection.abortController.abort();
     sseConnections.delete(sessionId);
+    await updateSessionStatus(sessionId, 'disconnected');
     console.log(`[Council SSE] Stopped connection for ${sessionId}`);
+  }
+}
+
+/**
+ * Ensure SSE is connected for a session (reconnect if needed).
+ */
+async function ensureSSEConnected(sessionId, hubUrl) {
+  const isConnected = sseConnections.has(sessionId);
+  const state = await getSessionState(sessionId);
+  
+  if (!isConnected) {
+    console.log(`[Council SSE] Ensuring connection for ${sessionId} (status: ${state.status})`);
+    await startSSE(sessionId, hubUrl);
   }
 }
 
@@ -339,17 +435,73 @@ function stopSSE(sessionId) {
  * Start SSE for active ChatGPT tabs.
  */
 async function startSSEForActiveTabs() {
-  const tabs = await chrome.tabs.query({ url: 'https://chatgpt.com/*', active: true });
+  const tabs = await chrome.tabs.query({ url: 'https://chatgpt.com/*' });
   const config = await getConfig();
   
   for (const tab of tabs) {
     // Extract thread ID from URL
-    const match = tab.url.match(/\/c\/([a-f0-9-]+)/i);
+    const match = tab.url?.match(/\/c\/([a-f0-9-]+)/i);
     if (match) {
       const sessionId = `cgpt:${match[1]}`;
-      startSSE(sessionId, config.hubUrl);
+      await ensureSSEConnected(sessionId, config.hubUrl);
     }
   }
+}
+
+/**
+ * Keepalive alarm handler - ensure SSE connections are alive.
+ */
+async function handleKeepaliveAlarm() {
+  console.log('[Council Keepalive] Checking SSE connections...');
+  
+  const config = await getConfig();
+  const tabs = await chrome.tabs.query({ url: 'https://chatgpt.com/*' });
+  
+  for (const tab of tabs) {
+    const match = tab.url?.match(/\/c\/([a-f0-9-]+)/i);
+    if (match) {
+      const sessionId = `cgpt:${match[1]}`;
+      
+      // Check if connected
+      const isConnected = sseConnections.has(sessionId);
+      const state = await getSessionState(sessionId);
+      
+      if (!isConnected && state.status !== 'connecting') {
+        console.log(`[Council Keepalive] Reconnecting stale session ${sessionId}`);
+        await startSSE(sessionId, config.hubUrl);
+      } else if (isConnected) {
+        // Check for staleness
+        const stale = await isSessionStale(sessionId);
+        if (stale) {
+          await updateSessionStatus(sessionId, 'stale');
+          // Notify content script
+          try {
+            await chrome.tabs.sendMessage(tab.id, {
+              action: 'staleStatus',
+              sessionId
+            });
+          } catch (e) {
+            // Tab might not have content script
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Setup keepalive alarm.
+ */
+function setupKeepaliveAlarm() {
+  // Create alarm if not exists
+  chrome.alarms.get(KEEPALIVE_ALARM_NAME, (alarm) => {
+    if (!alarm) {
+      chrome.alarms.create(KEEPALIVE_ALARM_NAME, {
+        periodInMinutes: KEEPALIVE_INTERVAL_MINUTES
+      });
+      console.log('[Council] Keepalive alarm created');
+    }
+  });
 }
 
 // Message handler
@@ -422,14 +574,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         
         case 'startSSE': {
           const { sessionId } = message;
-          startSSE(sessionId, hubUrl);
+          await startSSE(sessionId, hubUrl);
           sendResponse({ success: true });
           break;
         }
         
         case 'stopSSE': {
           const { sessionId } = message;
-          stopSSE(sessionId);
+          await stopSSE(sessionId);
           sendResponse({ success: true });
           break;
         }
@@ -444,6 +596,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'clearUpdates': {
           const { sessionId } = message;
           await clearUpdateCount(sessionId);
+          sendResponse({ success: true });
+          break;
+        }
+        
+        case 'getSessionState': {
+          const { sessionId } = message;
+          const state = await getSessionState(sessionId);
+          sendResponse({ state });
+          break;
+        }
+        
+        case 'reconnect': {
+          const { sessionId } = message;
+          await stopSSE(sessionId);
+          await startSSE(sessionId, hubUrl);
           sendResponse({ success: true });
           break;
         }
@@ -464,6 +631,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // On installed
 chrome.runtime.onInstalled.addListener(() => {
   console.log('[Council] Extension installed');
+  setupKeepaliveAlarm();
+});
+
+// On startup (when service worker wakes)
+chrome.runtime.onStartup.addListener(() => {
+  console.log('[Council] Service worker started');
+  setupKeepaliveAlarm();
+  
+  // Reconnect SSE for active tabs
+  startSSEForActiveTabs();
+});
+
+// Alarm handler
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === KEEPALIVE_ALARM_NAME) {
+    handleKeepaliveAlarm();
+  }
 });
 
 // Start SSE when tab is activated
@@ -474,17 +658,42 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
     if (match) {
       const config = await getConfig();
       const sessionId = `cgpt:${match[1]}`;
-      startSSE(sessionId, config.hubUrl);
+      await ensureSSEConnected(sessionId, config.hubUrl);
+    }
+  }
+});
+
+// Start SSE when tab URL changes (navigation within ChatGPT)
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url && tab.url.includes('chatgpt.com')) {
+    const match = tab.url.match(/\/c\/([a-f0-9-]+)/i);
+    if (match) {
+      const config = await getConfig();
+      const sessionId = `cgpt:${match[1]}`;
+      await ensureSSEConnected(sessionId, config.hubUrl);
     }
   }
 });
 
 // Stop SSE when tab is closed
-chrome.tabs.onRemoved.addListener((tabId) => {
-  // Find which session this tab was for and stop SSE
-  for (const [sessionId, connection] of sseConnections.entries()) {
-    // We don't track tab IDs, so we just clean up stale connections periodically
-    // For now, let SSE connections naturally close
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  // Find which session this tab was for and stop SSE if no other tabs for that session
+  const tabs = await chrome.tabs.query({ url: 'https://chatgpt.com/*' });
+  const activeSessions = new Set();
+  
+  for (const tab of tabs) {
+    const match = tab.url?.match(/\/c\/([a-f0-9-]+)/i);
+    if (match) {
+      activeSessions.add(`cgpt:${match[1]}`);
+    }
+  }
+  
+  // Stop SSE for sessions without active tabs
+  for (const [sessionId] of sseConnections.entries()) {
+    if (!activeSessions.has(sessionId)) {
+      console.log(`[Council] No active tabs for ${sessionId}, stopping SSE`);
+      await stopSSE(sessionId);
+    }
   }
 });
 
@@ -506,3 +715,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     });
   }
 });
+
+// Initial setup on script load
+setupKeepaliveAlarm();

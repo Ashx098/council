@@ -333,14 +333,28 @@
         break;
       }
       
-      case 'autoDigest': {
-        // Auto-pull digest into composer
+      case 'staleStatus': {
+        // Show stale status indicator
         if (message.sessionId === currentSessionId) {
-          insertAutoDigest(message.digest);
-          updateBadge(0);
+          window.CouncilDOM.showToast('Council stream paused; click Pull to reconnect', 'info');
+          if (statusIndicator) {
+            statusIndicator.classList.remove('council-status-ok');
+            statusIndicator.classList.add('council-status-error');
+            statusIndicator.title = 'Council: Stale connection';
+          }
         }
         break;
       }
+      
+      case 'reconnected': {
+        // SSE reconnected successfully
+        if (message.sessionId === currentSessionId) {
+          window.CouncilDOM.showToast('Council reconnected', 'success');
+          updateStatus();
+        }
+        break;
+      }
+      
     }
     
     sendResponse({ received: true });
