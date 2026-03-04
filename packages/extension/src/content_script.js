@@ -61,6 +61,11 @@
     const pullBtn = toolbar.querySelector('.council-btn-pull');
     statusIndicator = toolbar.querySelector('.council-status-dot');
     badgeCount = toolbar.querySelector('.council-badge');
+    // Check if buttons were found
+    if (!syncBtn || !pullBtn) {
+      console.error('[Council] Could not find toolbar buttons, HTML:', toolbar.innerHTML.substring(0, 200));
+      return toolbar;
+    }
 
     syncBtn.addEventListener('click', handleSync);
     pullBtn.addEventListener('click', handlePull);
@@ -288,7 +293,6 @@
   function init() {
     // Wait for page to be ready
     const checkReady = setInterval(() => {
-    // Wait for page to be ready
       try {
         if (window.CouncilDOM && window.CouncilDOM.isPageReady()) {
           clearInterval(checkReady);
