@@ -13,11 +13,12 @@ class Settings(BaseSettings):
     port: int = 8000
     reload: bool = False
     
-    # Data paths
+    # Data paths (derive from data_dir in __init__)
     data_dir: Path = Path.home() / ".council"
     db_path: Path = Path.home() / ".council" / "council.db"
     artifacts_dir: Path = Path.home() / ".council" / "artifacts"
     
+    # Digest budgets
     # Digest budgets
     digest_max_chars: int = 12000
     digest_max_events: int = 100
@@ -42,6 +43,12 @@ class Settings(BaseSettings):
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # Derive paths from data_dir if not explicitly set
+        default_data_dir = Path.home() / ".council"
+        if self.data_dir != default_data_dir:
+            # data_dir was overridden, update derived paths
+            self.db_path = self.data_dir / "council.db"
+            self.artifacts_dir = self.data_dir / "artifacts"
         # Ensure directories exist
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)

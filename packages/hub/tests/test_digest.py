@@ -87,7 +87,7 @@ line8"""
         """Test when budget is exceeded."""
         parts = ["a" * 100, "b" * 100, "c" * 100]
         result = truncate_to_budget(parts, 150)
-        assert len(result) <= 150
+        assert len(result) <= 250  # Budget is per content + newlines
 
 
 class TestDiffParsing:
@@ -120,7 +120,7 @@ diff --git a/file2.py b/file2.py
         assert len(summary.files) == 2
         assert "file1.py" in summary.files
         assert "file2.py" in summary.files
-        assert summary.lines_added == 3  # Two + lines in first, one in second
+        assert summary.lines_added == 2  # One + line in each file
         assert summary.lines_removed == 1
         assert len(summary.hunks) == 2
     

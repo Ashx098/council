@@ -192,10 +192,10 @@ class SessionRepo:
         
         with self.db.get_connection() as conn:
             conn.execute(
-                f"UPDATE sessions SET {set_clause}, updated_at = CURRENT_TIMESTAMP 
-                 WHERE session_id = ?",
+                f"UPDATE sessions SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
                 values
             )
+            conn.commit()
             conn.commit()
         
         return self.get(session_id)

@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from council_hub.config import settings, EVENT_SOURCES, EVENT_TYPES
+from council_hub.config import settings, EVENT_SOURCES, EVENT_TYPES, ARTIFACT_KINDS
 from council_hub.db.repo import Database, SessionRepo, EventRepo, ArtifactRepo
 from council_hub.core.ingest import IngestService, IngestError
 from council_hub.core.digest import DigestService
@@ -78,17 +78,23 @@ class SessionResponse(BaseModel):
     event_count: int
 
 
+class ArtifactUpload(BaseModel):
+    kind: str = Field(..., description=f"One of: {ARTIFACT_KINDS}")
+    content: str = Field(..., description="Artifact content as string")
+
+
 class IngestEventRequest(BaseModel):
     source: str = Field(..., description=f"One of: {EVENT_SOURCES}")
     type: str = Field(..., description=f"One of: {EVENT_TYPES}")
     body: str = Field(..., description="Event body text")
     meta: Optional[Dict[str, Any]] = Field(None, description="Optional metadata")
-
+    artifacts: Optional[List[ArtifactUpload]] = Field(None, description="Optional artifacts to upload")
 
 class IngestEventResponse(BaseModel):
     event_id: int
     session_id: str
     ts: str
+    meta: Optional[Dict[str, Any]] = None
 
 
 class ListEventsResponse(BaseModel):
@@ -171,21 +177,34 @@ async def list_sessions(
 @app.post("/v1/sessions/{session_id}/events", response_model=IngestEventResponse, status_code=201)
 async def ingest_event(session_id: str, request: IngestEventRequest):
     """Ingest a new event into the session."""
+    
+    # Process artifacts if present
+    meta = request.meta or {}
+    if request.artifacts:
+        for art in request.artifacts:
+            artifact_id = ingest.ingest_artifact(
+                session_id=session_id,
+                kind=art.kind,
+                content=art.content.encode("utf-8")
+            )
+            # Add artifact_id to meta
+            meta["artifact_id"] = artifact_id
+    
     event_id = ingest.ingest_event(
         session_id=session_id,
         source=request.source,
         type=request.type,
         body=request.body,
-        meta=request.meta
+        meta=meta
     )
     
     event = events.get(event_id)
     return IngestEventResponse(
         event_id=event.event_id,
         session_id=event.session_id,
-        ts=event.ts
+        ts=event.ts,
+        meta=event.meta
     )
-
 
 @app.get("/v1/sessions/{session_id}/events", response_model=ListEventsResponse)
 async def list_events(
