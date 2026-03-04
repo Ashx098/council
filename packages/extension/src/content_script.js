@@ -65,7 +65,31 @@
     syncBtn.addEventListener('click', handleSync);
     pullBtn.addEventListener('click', handlePull);
 
+    // Watch for toolbar being removed (ChatGPT re-renders)
+    watchForToolbarRemoval();
+
     return toolbar;
+  }
+
+  /**
+   * Watch for toolbar being removed and re-inject it.
+   */
+  function watchForToolbarRemoval() {
+    const observer = new MutationObserver(() => {
+      if (toolbar && !document.contains(toolbar)) {
+        console.log('[Council] Toolbar was removed, re-injecting...');
+        toolbar = null;
+        statusIndicator = null;
+        badgeCount = null;
+        createToolbar();
+        updateStatus();
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
   }
 
   /**
@@ -264,34 +288,41 @@
   function init() {
     // Wait for page to be ready
     const checkReady = setInterval(() => {
-      if (window.CouncilDOM.isPageReady()) {
-        clearInterval(checkReady);
-        
-        // Create toolbar
-        createToolbar();
-        
-        // Update status
-        updateStatus();
-        
-        // Refresh badge
-        refreshBadge();
-        
-        // Start SSE for this session
-        const sessionId = window.CouncilThread.getSessionId();
-        currentSessionId = sessionId;
-        
-        chrome.runtime.sendMessage({
-          action: 'startSSE',
-          sessionId
-        });
-        
-        // Periodically update status
-        setInterval(updateStatus, 30000);
-        
-        // Periodically refresh badge
-        setInterval(refreshBadge, 10000);
-        
-        console.log('[Council] Extension initialized');
+    // Wait for page to be ready
+      try {
+        if (window.CouncilDOM && window.CouncilDOM.isPageReady()) {
+          clearInterval(checkReady);
+          
+          // Create toolbar
+          createToolbar();
+          
+          // Update status
+          updateStatus();
+          
+          // Refresh badge
+          refreshBadge();
+          
+          // Start SSE for this session
+          if (window.CouncilThread) {
+            const sessionId = window.CouncilThread.getSessionId();
+            currentSessionId = sessionId;
+            
+            chrome.runtime.sendMessage({
+              action: 'startSSE',
+              sessionId
+            });
+          }
+          
+          // Periodically update status
+          setInterval(updateStatus, 30000);
+          
+          // Periodically refresh badge
+          setInterval(refreshBadge, 10000);
+          
+          console.log('[Council] Extension initialized');
+        }
+      } catch (err) {
+        console.error('[Council] Init error:', err);
       }
     }, 500);
 
