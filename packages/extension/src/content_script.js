@@ -9,6 +9,8 @@
 
   let toolbar = null;
   let statusIndicator = null;
+  let badgeCount = null;
+  let currentSessionId = null;
 
   /**
    * Create the toolbar UI.
@@ -30,6 +32,7 @@
         <button class="council-btn council-btn-pull" title="Pull digest from Council Hub">
           <span class="council-icon">↓</span>
           Pull ← Council
+          <span class="council-badge" style="display: none;">0</span>
         </button>
       </div>
     `;
@@ -57,6 +60,7 @@
     const syncBtn = toolbar.querySelector('.council-btn-sync');
     const pullBtn = toolbar.querySelector('.council-btn-pull');
     statusIndicator = toolbar.querySelector('.council-status-dot');
+    badgeCount = toolbar.querySelector('.council-badge');
 
     syncBtn.addEventListener('click', handleSync);
     pullBtn.addEventListener('click', handlePull);
@@ -80,6 +84,37 @@
       statusIndicator.classList.remove('council-status-ok');
       statusIndicator.classList.add('council-status-error');
       statusIndicator.title = `Council Hub: ${response?.error || 'Disconnected'}`;
+    }
+  }
+
+  /**
+   * Update badge count.
+   */
+  function updateBadge(count) {
+    if (!badgeCount) return;
+    
+    if (count > 0) {
+      badgeCount.textContent = count > 9 ? '9+' : count;
+      badgeCount.style.display = 'inline';
+    } else {
+      badgeCount.style.display = 'none';
+    }
+  }
+
+  /**
+   * Refresh badge from background.
+   */
+  async function refreshBadge() {
+    const sessionId = window.CouncilThread.getSessionId();
+    if (!sessionId) return;
+    
+    const response = await chrome.runtime.sendMessage({
+      action: 'getUpdateCount',
+      sessionId
+    });
+    
+    if (response && response.count !== undefined) {
+      updateBadge(response.count);
     }
   }
 
@@ -169,11 +204,57 @@
         } else {
           window.CouncilDOM.showToast('Could not insert into composer', 'error');
         }
+        
+        // Clear badge
+        updateBadge(0);
       } else {
         window.CouncilDOM.showToast(`Pull failed: ${response.error}`, 'error');
       }
     } catch (error) {
       window.CouncilDOM.showToast(`Pull error: ${error.message}`, 'error');
+    }
+  }
+
+  /**
+   * Show milestone toast notification.
+   */
+  function showMilestoneToast(event) {
+    let message = 'Council update';
+    
+    switch (event.type) {
+      case 'question':
+        message = '❓ Question needs approval';
+        break;
+      case 'run_report':
+        message = `✅ Executor finished`;
+        if (event.meta?.exit_code !== undefined && event.meta.exit_code !== 0) {
+          message = `❌ Executor failed (exit ${event.meta.exit_code})`;
+        }
+        break;
+      case 'test_result':
+        message = '❌ Tests failing';
+        if (event.meta?.exit_code === 0) {
+          message = '✅ Tests passing';
+        }
+        break;
+      default:
+        message = `📋 ${event.type}`;
+    }
+    
+    window.CouncilDOM.showToast(message, 'milestone');
+  }
+
+  /**
+   * Insert auto-digest into composer.
+   */
+  function insertAutoDigest(digest) {
+    const sessionId = window.CouncilThread.getSessionId();
+    const formattedDigest = window.CouncilFormat.formatDigest(digest, sessionId);
+    
+    const inserted = window.CouncilDOM.insertIntoComposer(formattedDigest);
+    
+    if (inserted) {
+      window.CouncilDOM.showToast('Auto-pulled digest into composer', 'success');
     }
   }
 
@@ -192,8 +273,23 @@
         // Update status
         updateStatus();
         
+        // Refresh badge
+        refreshBadge();
+        
+        // Start SSE for this session
+        const sessionId = window.CouncilThread.getSessionId();
+        currentSessionId = sessionId;
+        
+        chrome.runtime.sendMessage({
+          action: 'startSSE',
+          sessionId
+        });
+        
         // Periodically update status
         setInterval(updateStatus, 30000);
+        
+        // Periodically refresh badge
+        setInterval(refreshBadge, 10000);
         
         console.log('[Council] Extension initialized');
       }
@@ -207,24 +303,46 @@
 
   // Listen for messages from background
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === 'syncSelection') {
-      // Handle context menu sync
-      const sessionId = window.CouncilThread.getSessionId();
-      const event = window.CouncilFormat.formatMessageForSync(message.text, 'user', {
-        url: window.location.href,
-        source: 'context-menu'
-      });
+    switch (message.action) {
+      case 'syncSelection': {
+        // Handle context menu sync
+        const sessionId = window.CouncilThread.getSessionId();
+        const event = window.CouncilFormat.formatMessageForSync(message.text, 'user', {
+          url: window.location.href,
+          source: 'context-menu'
+        });
+        
+        chrome.runtime.sendMessage({
+          action: 'sync',
+          sessionId,
+          events: [event]
+        }).then(response => {
+          if (response.success) {
+            window.CouncilDOM.showToast('Synced selection', 'success');
+          }
+        });
+        break;
+      }
       
-      chrome.runtime.sendMessage({
-        action: 'sync',
-        sessionId,
-        events: [event]
-      }).then(response => {
-        if (response.success) {
-          window.CouncilDOM.showToast('Synced selection', 'success');
+      case 'milestone': {
+        // Show notification for milestone event
+        if (message.sessionId === currentSessionId) {
+          updateBadge(message.updateCount);
+          showMilestoneToast(message.event);
         }
-      });
+        break;
+      }
+      
+      case 'autoDigest': {
+        // Auto-pull digest into composer
+        if (message.sessionId === currentSessionId) {
+          insertAutoDigest(message.digest);
+          updateBadge(0);
+        }
+        break;
+      }
     }
+    
     sendResponse({ received: true });
     return true;
   });

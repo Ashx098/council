@@ -13,7 +13,7 @@
       font-family: system-ui, -apple-system, sans-serif;
       font-size: 14px;
       padding: 16px;
-      min-width: 280px;
+      min-width: 300px;
       background: #1e293b;
       color: #e2e8f0;
     }
@@ -112,6 +112,15 @@
       background: #2563eb;
     }
     
+    .btn-secondary {
+      background: #475569;
+      color: #e2e8f0;
+    }
+    
+    .btn-secondary:hover {
+      background: #64748b;
+    }
+    
     .info {
       font-size: 11px;
       color: #64748b;
@@ -146,13 +155,98 @@
       flex: 1;
     }
     
-    .btn-secondary {
-      background: #475569;
+    /* Toggle switch styles */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #334155;
+    }
+    
+    .toggle-row:last-child {
+      border-bottom: none;
+    }
+    
+    .toggle-label {
+      font-size: 13px;
       color: #e2e8f0;
     }
     
-    .btn-secondary:hover {
-      background: #64748b;
+    .toggle-desc {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    
+    .toggle-switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+    }
+    
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #475569;
+      transition: 0.3s;
+      border-radius: 24px;
+    }
+    
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.3s;
+      border-radius: 50%;
+    }
+    
+    .toggle-switch input:checked + .toggle-slider {
+      background-color: #3b82f6;
+    }
+    
+    .toggle-switch input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+    }
+    
+    .sse-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 8px;
+    }
+    
+    .sse-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #6b7280;
+    }
+    
+    .sse-indicator.active {
+      background: #10b981;
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
     }
   </style>
 </head>
@@ -177,6 +271,39 @@
   <p class="info">
     The hub URL is where Council stores session data. Default: http://127.0.0.1:7337
   </p>
+  
+  <div class="divider"></div>
+  
+  <div class="section">
+    <label>Notifications (Phase 4)</label>
+    
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-label">Auto-draft Pull</div>
+        <div class="toggle-desc">Automatically insert digest on milestones</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="auto-pull-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-label">Notify on Patch</div>
+        <div class="toggle-desc">Show notification when patches arrive</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" id="notify-patch-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    
+    <div class="sse-status">
+      <span class="sse-indicator" id="sse-indicator"></span>
+      <span id="sse-status-text">SSE: Idle</span>
+    </div>
+  </div>
   
   <div class="divider"></div>
   

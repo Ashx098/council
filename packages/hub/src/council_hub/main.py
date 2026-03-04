@@ -1,10 +1,11 @@
 """Council Hub - FastAPI application."""
-
+import asyncio
 import json
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -12,6 +13,7 @@ from council_hub.config import settings, EVENT_SOURCES, EVENT_TYPES, ARTIFACT_KI
 from council_hub.db.repo import Database, SessionRepo, EventRepo, ArtifactRepo
 from council_hub.core.ingest import IngestService, IngestError
 from council_hub.core.digest import DigestService
+from council_hub.core.stream import SSEManager, SSEEvent, make_body_preview
 from council_hub.storage.artifacts import ArtifactStore
 
 
@@ -23,12 +25,23 @@ artifacts: Optional[ArtifactRepo] = None
 store: Optional[ArtifactStore] = None
 ingest: Optional[IngestService] = None
 digest: Optional[DigestService] = None
+sse: Optional[SSEManager] = None
+
+
+def get_sse() -> SSEManager:
+    """Get SSE manager, initializing lazily if needed."""
+    global sse
+    if sse is None:
+        sse = SSEManager()
+    return sse
+
+
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global db, sessions, events, artifacts, store, ingest, digest
+    global db, sessions, events, artifacts, store, ingest, digest, sse
     
     # Initialize on startup
     db = Database()
@@ -38,6 +51,7 @@ async def lifespan(app: FastAPI):
     store = ArtifactStore()
     ingest = IngestService(db, store)
     digest = DigestService(db, store)
+    sse = SSEManager()
     
     yield
     
@@ -48,7 +62,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Council Hub",
     description="Local session store and digest service for Council",
-    version="1.0.0-phase1",
+    version="1.0.0-phase4",
     lifespan=lifespan
 )
 
@@ -199,6 +213,19 @@ async def ingest_event(session_id: str, request: IngestEventRequest):
     )
     
     event = events.get(event_id)
+    
+    # Broadcast to SSE subscribers
+    sse_event = SSEEvent(
+        event_id=event.event_id,
+        session_id=event.session_id,
+        ts=event.ts,
+        source=event.source,
+        type=event.type,
+        body_preview=make_body_preview(event.body),
+        meta=event.meta
+    )
+    await get_sse().broadcast(session_id, sse_event)
+    
     return IngestEventResponse(
         event_id=event.event_id,
         session_id=event.session_id,
@@ -230,6 +257,65 @@ async def list_events(
         events=[e.to_dict() for e in event_list],
         next_cursor=last_id,
         has_more=has_more
+    )
+
+
+# SSE streaming endpoint
+@app.get("/v1/sessions/{session_id}/stream")
+async def stream_events(
+    session_id: str,
+    after: int = Query(0, ge=0, description="Start streaming after this event_id"),
+    last_event_id: Optional[str] = Query(None, alias="Last-Event-ID", description="Reconnect after this event_id")
+):
+    """SSE endpoint for real-time event streaming.
+    
+    Returns text/event-stream with events as they arrive.
+    Supports reconnect via Last-Event-ID header or query param.
+    """
+    # Prefer Last-Event-ID header over query param
+    reconnect_cursor = after
+    if last_event_id:
+        try:
+            reconnect_cursor = int(last_event_id)
+        except ValueError:
+            pass
+    
+    async def event_generator() -> AsyncGenerator[str, None]:
+        """Generate SSE events."""
+        # Send hello event on connect
+        hello = {
+            "type": "connected",
+            "session_id": session_id,
+            "after": reconnect_cursor
+        }
+        yield f"event: hello\ndata: {json.dumps(hello)}\n\n"
+        
+        # Subscribe to session events
+        queue = await get_sse().subscribe(session_id)
+        
+        try:
+            while True:
+                try:
+                    # Wait for events with timeout for keepalive
+                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield event.to_sse() + "\n"
+                except asyncio.TimeoutError:
+                    # Send keepalive comment
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            # Client disconnected
+            pass
+        finally:
+            await get_sse().unsubscribe(session_id, queue)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
     )
 
 
@@ -300,7 +386,7 @@ async def get_artifact(session_id: str, artifact_id: str):
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "version": "1.0.0-phase1"}
+    return {"status": "healthy", "version": "1.0.0-phase4"}
 
 
 # Main entry point

@@ -234,12 +234,13 @@
       max-width: 300px;
     `;
 
-    const colors = {
-      success: 'background: #10b981; color: white;',
-      error: 'background: #ef4444; color: white;',
-      info: 'background: #3b82f6; color: white;'
-    };
-    toast.style.cssText += colors[type] || colors.info;
+const colors = {
+success: 'background: #10b981; color: white;',
+error: 'background: #ef4444; color: white;',
+      info: 'background: #3b82f6; color: white;',
+      milestone: 'background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%); color: white; border-left: 4px solid #f59e0b;'
+};
+toast.style.cssText += colors[type] || colors.info;
     toast.textContent = message;
 
     document.body.appendChild(toast);

@@ -97,14 +97,37 @@
   transform: translateY(0);
 }
 
-.council-icon {
-  font-size: 14px;
-  font-weight: bold;
+/* Badge on Pull button */
+.council-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 6px;
+  background: #ef4444;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 9px;
+  animation: council-badge-pulse 1.5s ease infinite;
+}
+
+@keyframes council-badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
 }
 
 /* Toast */
 #council-toast {
   animation: council-fade-in 0.3s ease;
+}
+
+/* Milestone toast - special styling */
+#council-toast.council-toast-milestone {
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  border-left: 4px solid #f59e0b;
 }
 
 /* Responsive adjustments */
