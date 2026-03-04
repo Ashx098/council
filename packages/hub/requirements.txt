@@ -1,0 +1,11 @@
+# Council Hub Requirements
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Development dependencies (optional)
+# pip install -r requirements.txt -r requirements-dev.txt

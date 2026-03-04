@@ -1,0 +1,8 @@
+# Council CLI Requirements
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+typer>=0.9.0
+httpx>=0.25.0
+pyyaml>=6.0
+rich>=13.0.0

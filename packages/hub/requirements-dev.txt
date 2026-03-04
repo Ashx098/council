@@ -1,0 +1,8 @@
+# Council Hub Development Requirements
+# Install with: pip install -r requirements-dev.txt
+
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+httpx>=0.25.0
+ruff>=0.1.0
+mypy>=1.7.0
