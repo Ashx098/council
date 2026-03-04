@@ -38,7 +38,7 @@ def get_sse() -> SSEManager:
     return sse
 
 
-def get_pairing() -> PairingService:
+def get_pairing_service() -> PairingService:
     """Get pairing service, initializing lazily if needed."""
     global pairing, db
     if pairing is None:
@@ -440,7 +440,7 @@ async def create_pairing(request: CreatePairingRequest):
     session = sessions.get_or_create(request.session_id)
     
     try:
-        code = get_pairing().create(request.session_id, request.ttl_minutes)
+        code = get_pairing_service().create(request.session_id, request.ttl_minutes)
         return pairing_to_response(code)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -453,7 +453,7 @@ async def claim_pairing(request: ClaimPairingRequest):
     The CLI calls this to bind to a session.
     """
     try:
-        result = get_pairing().claim(
+        result = get_pairing_service().claim(
             request.code,
             claimed_by=request.claimed_by,
             repo_root=request.repo_root
@@ -466,7 +466,7 @@ async def claim_pairing(request: ClaimPairingRequest):
 @app.get("/v1/pair/{code}", response_model=PairingResponse)
 async def get_pairing(code: str):
     """Get pairing code status."""
-    result = get_pairing().get(code)
+    result = get_pairing_service().get(code)
     if result is None:
         raise HTTPException(status_code=404, detail={
             "error": "pairing_not_found",
@@ -479,7 +479,7 @@ async def get_pairing(code: str):
 @app.get("/v1/pair/session/{session_id}", response_model=PairingResponse)
 async def get_session_pairing(session_id: str):
     """Get the active pairing code for a session."""
-    result = get_pairing().get_by_session(session_id)
+    result = get_pairing_service().get_by_session(session_id)
     if result is None:
         raise HTTPException(status_code=404, detail={
             "error": "no_active_pairing",
