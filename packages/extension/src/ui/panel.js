@@ -338,17 +338,17 @@ function startPairCountdown(expiresAt) {
 
 
 // Event listeners
-saveBtn.addEventListener('click', saveConfig);
-testBtn.addEventListener('click', testConnection);
-clearCursorBtn.addEventListener('click', clearCursor);
-openHubBtn.addEventListener('click', openHub);
+if (saveBtn) saveBtn.addEventListener('click', saveConfig);
+if (testBtn) testBtn.addEventListener('click', testConnection);
+if (clearCursorBtn) clearCursorBtn.addEventListener('click', clearCursor);
+if (openHubBtn) openHubBtn.addEventListener('click', openHub);
 if (reconnectBtn) {
   reconnectBtn.addEventListener('click', reconnectSSE);
 }
 
 // Toggle listeners
-autoPullToggle.addEventListener('change', saveConfig);
-notifyPatchToggle.addEventListener('change', saveConfig);
+if (autoPullToggle) autoPullToggle.addEventListener('change', saveConfig);
+if (notifyPatchToggle) notifyPatchToggle.addEventListener('change', saveConfig);
 if (createPairBtn) {
   createPairBtn.addEventListener('click', createPairCode);
 }
