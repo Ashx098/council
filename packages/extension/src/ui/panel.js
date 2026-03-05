@@ -364,7 +364,8 @@ function startPairCountdown(expiresAt) {
   
   const updateCountdown = () => {
     const now = new Date();
-    const expires = new Date(expiresAt);
+    const expiresStr = expiresAt.endsWith('Z') ? expiresAt : expiresAt + 'Z';
+    const expires = new Date(expiresStr);
     const remaining = Math.max(0, expires - now);
     
     if (remaining === 0) {
